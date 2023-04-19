@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+
 
 void main() {
   runApp(FloorPlanApp());
@@ -76,6 +79,80 @@ class _AdminPageState extends State<AdminPage> {
   List<Room> _rooms = []; // Add a list to store room information //store information in circle
   double _circleSize = 30.0; // Add a field to store the size of the circle
 
+  late SharedPreferences _prefs;
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    _loadData();
+
+    _buttonPositions.add(Offset.zero);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initPrefs().then((_) {
+      _saveData();
+    });
+
+  }
+
+  void _saveData() async {
+
+    print('Saving Data');
+
+    _prefs = await SharedPreferences.getInstance();
+
+    // await _initPrefs();
+
+    List<String> roomNames = [];
+    List<String> roomDescriptions = [];
+    List<String> buttonPositions = [];
+
+
+
+    // Store room information and button positions in separate lists
+    for (Room room in _rooms) {
+      roomNames.add(room.roomName);
+      roomDescriptions.add(room.roomDescription);
+    }
+    for (Offset position in _buttonPositions) {
+      buttonPositions.add('${position.dx},${position.dy}');
+    }
+
+    // Store data in shared preferences
+    _prefs.setStringList('roomNames', roomNames);
+    _prefs.setStringList('roomDescriptions', roomDescriptions);
+    _prefs.setStringList('buttonPositions', buttonPositions);
+    _prefs.setDouble('circleSize', _circleSize);
+    print('Data saved successfully');
+  }
+
+  void _loadData() {
+    print('Loading Data');
+    List<String>? roomNames = _prefs.getStringList('roomNames');
+    List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
+    List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
+    double? circleSize = _prefs.getDouble('circleSize');
+
+    if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
+      _rooms.clear();
+      _buttonPositions.clear();
+      _circleSize = circleSize;
+
+      for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
+        _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
+      }
+      for (String positionString in buttonPositions) {
+        List<String> parts = positionString.split(',');
+        double x = double.tryParse(parts[0]) ?? 0.0;
+        double y = double.tryParse(parts[1]) ?? 0.0;
+        _buttonPositions.add(Offset(x, y));
+        print("hi");
+      }
+    }
+  }
+
   // Function to update the circle size
   void _updateCircleSize(double newSize) {
     setState(() {
@@ -117,11 +194,17 @@ class _AdminPageState extends State<AdminPage> {
                   Slider(
                     min: 10,
                     max: 100,
-                    divisions: 10,
+                    divisions: 20,
                     value: _circleSize,
                     onChanged: (double newValue) {
                       _updateCircleSize(newValue);
                     },
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      _saveData();
+                    },
+                    child: Text('Save'),
                   ),
                 ],
               ),
@@ -218,6 +301,7 @@ Future<Room?> _showRoomDialog(BuildContext context, Room room) async {
               ));
             },
           ),
+
         ],
       );
     },
