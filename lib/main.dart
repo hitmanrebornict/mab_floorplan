@@ -81,18 +81,26 @@ class _AdminPageState extends State<AdminPage> {
 
   late SharedPreferences _prefs;
 
+  // Future<void> clearSharedPreferences() async {
+  //   _prefs = await SharedPreferences.getInstance();
+  //   _prefs.clear();
+  //   print("Done");
+  // }
+
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     _loadData();
 
-    _buttonPositions.add(Offset.zero);
+
   }
 
   @override
   void initState() {
     super.initState();
+    // clearSharedPreferences();
     _initPrefs().then((_) {
       _saveData();
+
     });
 
   }
@@ -136,20 +144,22 @@ class _AdminPageState extends State<AdminPage> {
     double? circleSize = _prefs.getDouble('circleSize');
 
     if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
-      _rooms.clear();
-      _buttonPositions.clear();
-      _circleSize = circleSize;
+      setState(() {
+        _rooms.clear();
+        _buttonPositions.clear();
+        _circleSize = circleSize;
 
-      for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
-        _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
-      }
-      for (String positionString in buttonPositions) {
-        List<String> parts = positionString.split(',');
-        double x = double.tryParse(parts[0]) ?? 0.0;
-        double y = double.tryParse(parts[1]) ?? 0.0;
-        _buttonPositions.add(Offset(x, y));
-        print("hi");
-      }
+        for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
+          _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
+        }
+        for (String positionString in buttonPositions) {
+          List<String> parts = positionString.split(',');
+          double x = double.tryParse(parts[0]) ?? 0.0;
+          double y = double.tryParse(parts[1]) ?? 0.0;
+          _buttonPositions.add(Offset(x, y));
+          print("hi");
+        }
+      }); // Close setState here
     }
   }
 
@@ -157,6 +167,8 @@ class _AdminPageState extends State<AdminPage> {
   void _updateCircleSize(double newSize) {
     setState(() {
       _circleSize = newSize;
+      // _buttonPositions.clear(); //clear all the button
+      // _rooms.clear();
     });
   }
 
@@ -215,34 +227,35 @@ class _AdminPageState extends State<AdminPage> {
               .entries
               .map(
                 (entry) =>
-                Positioned(
-                  left: entry.value.dx,
-                  top: entry.value.dy,
-                  child: GestureDetector(
-                    onPanUpdate: (details) {
-                      setState(() {
-                        _buttonPositions[entry.key] += details.delta;
-                      });
-                    },
-                    child: ClipOval(
-                      child: ElevatedButton(
-                            onPressed: () async {Room? updatedRoom = await _showRoomDialog(context, _rooms[entry.key]);
-                            if (updatedRoom != null) {
-                              setState(() {
-                                _rooms[entry.key] = updatedRoom;
-                              });
-                            }
+                    Positioned(
+                      left: entry.value.dx,
+                      top: entry.value.dy,
+                      child: Listener(
+                        onPointerMove: (PointerMoveEvent event) {
+                          setState(() {
+                            _buttonPositions[entry.key] += event.delta;
+                          });
+                        },
+                        child: ClipOval(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              Room? updatedRoom = await _showRoomDialog(context, _rooms[entry.key]);
+                              if (updatedRoom != null) {
+                                setState(() {
+                                  _rooms[entry.key] = updatedRoom;
+                                });
+                              }
                             },
-                        child: Container(),
-                        style: ElevatedButton.styleFrom(
-                          primary: Colors.blue,
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size(_circleSize, _circleSize),
+                            child: Container(),
+                            style: ElevatedButton.styleFrom(
+                              primary: Colors.blue,
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size(_circleSize, _circleSize),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
           ),
         ],
       ),
