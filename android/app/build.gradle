@@ -20,9 +20,32 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        jcenter() // This is being phased out, but some older plugins might still require it.
+    }
+    dependencies {
+        classpath 'com.google.gms:google-services:4.3.10'
+        // ... other dependencies
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        jcenter()
+        // ... other repositories
+    }
+}
+
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
+apply plugin: 'com.google.gms.google-services'
+
 
 android {
     compileSdkVersion flutter.compileSdkVersion
@@ -68,3 +91,4 @@ flutter {
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
 }
+
