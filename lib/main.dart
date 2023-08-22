@@ -5,6 +5,10 @@ import 'package:photo_view/photo_view.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
+
 
 
 void main() {
