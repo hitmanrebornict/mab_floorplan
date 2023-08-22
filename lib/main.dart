@@ -25,51 +25,130 @@ class FloorPlanApp extends StatelessWidget {
   }
 }
 
-class WelcomePage extends StatelessWidget {
+class WelcomePage extends StatefulWidget {
+  @override
+  _WelcomePageState createState() => _WelcomePageState();
+}
+
+class _WelcomePageState extends State<WelcomePage> {
+  List<Offset> _buttonPositions = [];
+  List<Room> _rooms = [];
+  double _circleSize = 30.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  void _updateData(List<Offset> buttonPositions, double circleSize, List<Room> rooms) {
+    setState(() {
+      _buttonPositions = buttonPositions;
+      _circleSize = circleSize;
+      _rooms = rooms;
+    });
+  }
+
+  void _loadData() async {
+    SharedPreferences _prefs = await SharedPreferences.getInstance();
+    List<String>? roomNames = _prefs.getStringList('roomNames');
+    List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
+    List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
+    double? circleSize = _prefs.getDouble('circleSize');
+
+    if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
+      setState(() {
+        _rooms.clear();
+        _buttonPositions.clear();
+        _circleSize = circleSize;
+
+        for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
+          _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
+        }
+        for (String positionString in buttonPositions) {
+          List<String> parts = positionString.split(',');
+          double x = double.tryParse(parts[0]) ?? 0.0;
+          double y = double.tryParse(parts[1]) ?? 0.0;
+          _buttonPositions.add(Offset(x, y));
+          print("hi");
+        }
+      }); // Close setState here
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Welcome'),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => UserPage()),
-                );
-              },
-              child: Text('User'),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => AdminPage()),
-                );
-              },
-              child: Text('Admin'),
-            ),
-          ],
+        appBar: AppBar(
+          title: Text('Welcome'),
         ),
-      ),
+        body: Center(
+        child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+        ElevatedButton(
+        onPressed: () {
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (context) => UserPage(
+                buttonPositions: _buttonPositions,
+                circleSize: _circleSize,
+                rooms: _rooms,
+              ),
+          ),
+      );
+        },
+          child: Text('User'),
+        ),
+          SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => AdminPage(onUpdate: _updateData)),
+              );
+            },
+            child: Text('Admin'),
+          ),
+        ],
+        ),
+        ),
     );
   }
 }
 
 class UserPage extends StatelessWidget {
+  final List<Offset> buttonPositions;
+  final double circleSize;
+  final List<Room> rooms;
+
+  UserPage({
+    required this.buttonPositions,
+    required this.circleSize,
+    required this.rooms,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return FloorPlanScreen();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('User'),
+      ),
+      body: LabelsMap(
+        buttonPositions: buttonPositions,
+        circleSize: circleSize,
+        rooms: rooms,
+      ),
+    );
   }
 }
 
 class AdminPage extends StatefulWidget {
+  final Function(List<Offset>, double, List<Room>) onUpdate;
+
+  AdminPage({required this.onUpdate});
+
   @override
   _AdminPageState createState() => _AdminPageState();
 }
@@ -133,11 +212,11 @@ class _AdminPageState extends State<AdminPage> {
     _prefs.setStringList('roomDescriptions', roomDescriptions);
     _prefs.setStringList('buttonPositions', buttonPositions);
     _prefs.setDouble('circleSize', _circleSize);
-    print('Data saved successfully');
+    widget.onUpdate(_buttonPositions, _circleSize, _rooms);
   }
 
   void _loadData() {
-    print('Loading Data');
+
     List<String>? roomNames = _prefs.getStringList('roomNames');
     List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
     List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
@@ -321,165 +400,72 @@ Future<Room?> _showRoomDialog(BuildContext context, Room room) async {
   );
 }
 
-class FloorPlanScreen extends StatefulWidget {
-  @override
-  _FloorPlanScreenState createState() => _FloorPlanScreenState();
-}
+// receives the button positions, circle size, and rooms information as arguments
+class LabelsMap extends StatelessWidget {
+  final List<Offset> buttonPositions;
+  final double circleSize;
+  final List<Room> rooms;
 
-class _FloorPlanScreenState extends State<FloorPlanScreen> {
-  List<Label> roomLabels = [
-    Label(position: Offset(100, 50), roomName: 'A', description: 'This is Room A.'),
-    Label(position: Offset(200, 150), roomName: 'B', description: 'This is Room B.'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Floorplan App'),
-      ),
-      body: Center(
-        child: Stack(
-          children: [
-            Image.asset('assets/images/MAB.png'),
-            ...roomLabels,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-  Widget _buildRoomLabel(RoomLabel roomLabel) {
-    return Positioned(
-      left: roomLabel.x,
-      top: roomLabel.y,
-      child: Container(
-        padding: EdgeInsets.all(4.0),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(4.0),
-        ),
-        child: Text(roomLabel.text),
-      ),
-    );
-  }
-
-
-class RoomLabel {
-  final double x;
-  final double y;
-  final String text;
-
-  RoomLabel({required this.x, required this.y, required this.text});
-}
-
-class RoomDetails extends StatelessWidget {
-  final String roomName;
-  final String description;
-
-  const RoomDetails({required this.roomName, required this.description, Key? key}) : super(key: key);
+  LabelsMap({
+    required this.buttonPositions,
+    required this.circleSize,
+    required this.rooms,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(roomName),
-      content: Text(description),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Close'),
+    return Stack(
+      children: [
+        Center(
+          child: Image.asset(
+            'assets/images/MAB.png',
+            fit: BoxFit.contain,
+          ),
+        ),
+        ...buttonPositions
+            .asMap()
+            .entries
+            .map(
+              (entry) => Positioned(
+            left: entry.value.dx,
+            top: entry.value.dy,
+            child: ClipOval(
+              child: ElevatedButton(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) {
+                      return AlertDialog(
+                        title: Text(rooms[entry.key].roomName),
+                        content: Text(rooms[entry.key].roomDescription),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            child: Text('Close'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                  _speak('${rooms[entry.key].roomName}. ${rooms[entry.key].roomDescription}', onComplete: () {
+                    Navigator.pop(context);
+                  });
+                },
+                child: Container(),
+                style: ElevatedButton.styleFrom(
+                  primary: Colors.blue,
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size(circleSize, circleSize),
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
-}
-
-void _showRoomDetails(BuildContext context, String roomName, String description) {
-
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return RoomDetails(roomName: roomName, description: description);
-    },
-  );
-
-  _speak(description, onComplete: () {
-    Navigator.of(context).pop();
-  });
-}
-
-class Label extends StatefulWidget {
-  final Offset position;
-  final String roomName;
-  final String description;
-
-  Label({
-    required this.position,
-    required this.roomName,
-    required this.description,
-    Key? key,
-  }) : super(key: key);
-
-  @override
-  _LabelState createState() => _LabelState();
-}
-
-class _LabelState extends State<Label> {
-  bool _isHovered = false;
-
-  void _onPointerDown(PointerDownEvent event) {
-    if (!_isHovered) {
-      setState(() {
-        _isHovered = true;
-      });
-    }
-  }
-
-  void _onPointerMove(PointerMoveEvent event) {
-    if (!_isHovered) {
-      setState(() {
-        _isHovered = true;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isHovered) {
-      _showRoomDetails(context, widget.roomName, widget.description);
-      _speak(widget.description, onComplete: () {
-        Navigator.of(context).pop();
-      });
-    }
-
-    return Positioned(
-      left: widget.position.dx,
-      top: widget.position.dy,
-      child: Listener(
-        onPointerDown: _onPointerDown,
-        onPointerMove: _onPointerMove,
-        child: Container(
-          width: 40,
-          height: 20,
-          padding: EdgeInsets.all(4.0),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: Colors.black),
-            borderRadius: BorderRadius.circular(4.0),
-          ),
-          child: Center(
-            child: Text(
-              widget.roomName,
-              style: TextStyle(fontSize: 12.0),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-
 }
 
 final FlutterTts flutterTts = FlutterTts();
