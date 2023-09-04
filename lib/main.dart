@@ -179,6 +179,7 @@ class Circle {
       'name': name,
       'description': description,
     };
+
   }
 
   static Circle fromJson(Map<String, dynamic> json) {
@@ -433,43 +434,65 @@ class _EditMapPageState extends State<EditMapPage> {
                 ),
                 Padding(
                   padding: const EdgeInsets.all(16.0),
-                  child: DropdownButton<String>(
-                    value: selectedFloor,
-                    items: floorOptions.map((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
-                      );
-                    }).toList(),
-                    onChanged: (newValue) {
-                      setState(() {
-                        selectedFloor = newValue;
-                      });
-                      _checkAndDownloadImage();
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (BuildContext context, BoxConstraints constraints) {
-                      double maxWidth = constraints.maxWidth;
-                      double maxHeight = constraints.maxHeight;
-
-                      return hasImage && uploadedImage != null
-                          ? Container(
-                        key: imageKey,
-                        width: maxWidth,
-                        height: maxHeight,
-                        child: Image(
-                          image: uploadedImage!.image,
-                          fit: BoxFit.contain,
+                  child: Row(  // Wrap the dropdown and the button in a Row widget
+                    children: [
+                      Expanded(  // Make the dropdown take up all available horizontal space
+                        child: DropdownButton<String>(
+                          value: selectedFloor,
+                          items: floorOptions.map((String value) {
+                            return DropdownMenuItem<String>(
+                              value: value,
+                              child: Text(value),
+                            );
+                          }).toList(),
+                          onChanged: (newValue) {
+                            setState(() {
+                              selectedFloor = newValue;
+                            });
+                            _checkAndDownloadImage();
+                          },
                         ),
-                      )
-                          : ElevatedButton(
+                      ),
+                      SizedBox(width: 10),  // A little spacing between the dropdown and the button
+                      ElevatedButton(
                         onPressed: _uploadImage,
                         child: Text('Upload Image'),
-                      );
-                    },
+                      ),
+                    ],
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: hasImage && uploadedImage != null
+                      ? Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 2),
+                    ),
+                    key: imageKey,
+                    width: MediaQuery.of(context).size.width,  // Use the full width
+                    height: MediaQuery.of(context).size.height / 2,  // Use half the available height
+                    child: Image(
+                      image: uploadedImage!.image,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                    ),
+                  )
+                      : Container(
+                    width: MediaQuery.of(context).size.width,
+                    height: MediaQuery.of(context).size.height / 2,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 2),
+                    ),
+                    child: Center(
+                      child: Text(
+                        "Please upload a map.",
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -765,6 +788,9 @@ class _UserMainPageState extends State<UserMainPage> {
 
                 return hasImage && uploadedImage != null
                     ? Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
                   width: maxWidth,
                   height: maxHeight,
                   child: Image(
