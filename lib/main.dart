@@ -13,6 +13,22 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:convert';
 
 
+final FlutterTts flutterTts = FlutterTts();
+
+Future<void> _speak(String text, {VoidCallback? onComplete}) async {
+  await flutterTts.setLanguage('en-US');
+  await flutterTts.setPitch(1.0);
+  await flutterTts.setSpeechRate(0.5);
+
+  flutterTts.setCompletionHandler(() {
+    if (onComplete != null) {
+      onComplete();
+    }
+  });
+
+  await flutterTts.speak(text);
+}
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -379,8 +395,6 @@ class _EditMapPageState extends State<EditMapPage> {
   }
 
 
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -583,6 +597,208 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 }
 
+class ChooseProfilePage extends StatefulWidget {
+  @override
+  _ChooseProfilePageState createState() => _ChooseProfilePageState();
+}
+
+class _ChooseProfilePageState extends State<ChooseProfilePage> {
+  final _firestore = FirebaseFirestore.instance;
+
+  Future<List<Map<String, dynamic>>> fetchProfiles() async {
+    QuerySnapshot snapshot = await _firestore.collection('profiles').get();
+    return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Edit Existing Profile')),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: fetchProfiles(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          } else {
+            final profiles = snapshot.data;
+
+            return ListView.builder(
+              itemCount: profiles?.length ?? 0,
+              itemBuilder: (context, index) {
+                final profile = profiles?[index];
+                return ListTile(
+                    title: Text(profile?['profileName']),
+                    subtitle: Text('Number of floors: ${profile?['numberOfFloors']}'),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => UserMainPage(
+                            profileName: profile?['profileName'],
+                            numberOfFloors: profiles?[index]['numberOfFloors'],
+                          ),
+                        ),
+                      );
+                    }
+                );
+              },
+            );
+          }
+        },
+      ),
+    );
+  }
+}
+
+class UserMainPage extends StatefulWidget {
+  final String profileName;
+  final int numberOfFloors;
+
+  UserMainPage({required this.profileName, required this.numberOfFloors});
+
+  @override
+  _UserMainPageState createState() => _UserMainPageState();
+}
+
+class _UserMainPageState extends State<UserMainPage> {
+  List<String> floorOptions = [];
+  String? selectedFloor;
+  Image? uploadedImage;
+  bool hasImage = false;
+
+  List<Circle> circles = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _generateFloorOptions(widget.numberOfFloors);
+    _checkAndDownloadImage();
+    _loadCirclesFromFirebase();
+  }
+
+  Future<void> _loadCirclesFromFirebase() async {
+    final mapId = '${widget.profileName}_${selectedFloor}';
+    final ref = FirebaseFirestore.instance.collection('maps').doc(mapId);
+
+    final doc = await ref.get();
+    if (doc.exists) {
+      final data = doc.data() as Map<String, dynamic>;
+      final circlesString = data['circles'];
+      final circlesJson = jsonDecode(circlesString) as List;
+      final loadedCircles =
+      circlesJson.map((circleJson) => Circle.fromJson(circleJson)).toList();
+
+      setState(() {
+        circles = loadedCircles;
+      });
+    }
+  }
+
+  _generateFloorOptions(int floors) {
+    floorOptions.clear();
+
+    for (int i = 1; i <= floors; i++) {
+      floorOptions.add('Floor $i');
+    }
+    // Initially select the first floor
+    selectedFloor = floorOptions[0];
+  }
+
+  Future<void> _checkAndDownloadImage() async {
+    final imageName = '${widget.profileName}_${selectedFloor}_map.png';
+    final ref = FirebaseStorage.instance.ref().child('maps').child(imageName);
+
+    // Checking if the image exists
+    try {
+      final result = await ref.getDownloadURL();
+
+      setState(() {
+        hasImage = true;
+        uploadedImage = Image.network(result.toString()); // Using the image from Firebase Storage
+      });
+    } catch (e) {
+      print('Error fetching image: $e');
+      setState(() {
+        hasImage = false;
+      });
+    }
+
+    _loadCirclesFromFirebase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Edit ${widget.profileName}')),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: DropdownButton<String>(
+              value: selectedFloor,
+              items: floorOptions.map((String value) {
+                return DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(value),
+                );
+              }).toList(),
+              onChanged: (newValue) {
+                setState(() {
+                  selectedFloor = newValue;
+                });
+                _checkAndDownloadImage();
+              },
+            ),
+          ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                double maxWidth = constraints.maxWidth;
+                double maxHeight = constraints.maxHeight;
+
+                return hasImage && uploadedImage != null
+                    ? Container(
+                  width: maxWidth,
+                  height: maxHeight,
+                  child: Image(
+                    image: uploadedImage!.image,
+                    fit: BoxFit.contain,
+                  ),
+                )
+                    : CircularProgressIndicator(); // Show loading indicator while image is being fetched
+              },
+            ),
+          ),
+          Expanded(
+            child: Stack(
+              children: circles.map((circle) {
+                return Positioned(
+                  left: circle.position.dx,
+                  top: circle.position.dy,
+                  child: Container(
+                    width: circle.size,
+                    height: circle.size,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.blue,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _WelcomePageState extends State<WelcomePage> {
   List<Offset> _buttonPositions = [];
@@ -592,43 +808,42 @@ class _WelcomePageState extends State<WelcomePage> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // _loadData();
   }
 
-  void _updateData(List<Offset> buttonPositions, double circleSize, List<Room> rooms) {
-    setState(() {
-      _buttonPositions = buttonPositions;
-      _circleSize = circleSize;
-      _rooms = rooms;
-    });
-  }
+  // void _updateData(List<Offset> buttonPositions, double circleSize, List<Room> rooms) {
+  //   setState(() {
+  //     _buttonPositions = buttonPositions;
+  //     _circleSize = circleSize;
+  //     _rooms = rooms;
+  //   });
+  // }
 
-  void _loadData() async {
-    SharedPreferences _prefs = await SharedPreferences.getInstance();
-    List<String>? roomNames = _prefs.getStringList('roomNames');
-    List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
-    List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
-    double? circleSize = _prefs.getDouble('circleSize');
-
-    if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
-      setState(() {
-        _rooms.clear();
-        _buttonPositions.clear();
-        _circleSize = circleSize;
-
-        for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
-          _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
-        }
-        for (String positionString in buttonPositions) {
-          List<String> parts = positionString.split(',');
-          double x = double.tryParse(parts[0]) ?? 0.0;
-          double y = double.tryParse(parts[1]) ?? 0.0;
-          _buttonPositions.add(Offset(x, y));
-          print("hi");
-        }
-      }); // Close setState here
-    }
-  }
+  // void _loadData() async {
+  //   SharedPreferences _prefs = await SharedPreferences.getInstance();
+  //   List<String>? roomNames = _prefs.getStringList('roomNames');
+  //   List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
+  //   List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
+  //   double? circleSize = _prefs.getDouble('circleSize');
+  //
+  //   if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
+  //     setState(() {
+  //       _rooms.clear();
+  //       _buttonPositions.clear();
+  //       _circleSize = circleSize;
+  //
+  //       for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
+  //         _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
+  //       }
+  //       for (String positionString in buttonPositions) {
+  //         List<String> parts = positionString.split(',');
+  //         double x = double.tryParse(parts[0]) ?? 0.0;
+  //         double y = double.tryParse(parts[1]) ?? 0.0;
+  //         _buttonPositions.add(Offset(x, y));
+  //       }
+  //     }); // Close setState here
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -644,13 +859,7 @@ class _WelcomePageState extends State<WelcomePage> {
         onPressed: () {
       Navigator.push(
           context,
-          MaterialPageRoute(
-              builder: (context) => UserPage(
-                buttonPositions: _buttonPositions,
-                circleSize: _circleSize,
-                rooms: _rooms,
-              ),
-          ),
+        MaterialPageRoute(builder: (context) => ChooseProfilePage()),
       );
         },
           child: Text('User'),
@@ -1065,19 +1274,5 @@ class LabelsMap extends StatelessWidget {
   }
 }
 
-final FlutterTts flutterTts = FlutterTts();
 
-Future<void> _speak(String text, {VoidCallback? onComplete}) async {
-  await flutterTts.setLanguage('en-US');
-  await flutterTts.setPitch(1.0);
-  await flutterTts.setSpeechRate(0.5);
-
-  flutterTts.setCompletionHandler(() {
-    if (onComplete != null) {
-      onComplete();
-    }
-  });
-
-  await flutterTts.speak(text);
-}
 
