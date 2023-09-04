@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:convert';
 
 
 
@@ -137,22 +138,112 @@ class EditMapPage extends StatefulWidget {
 
   @override
   _EditMapPageState createState() => _EditMapPageState();
+
 }
 
+class Circle {
+  Offset position;
+  final String id;
+  bool? selected;
+  double size; // New property for size
+  String? name;
+  String? description;
+
+
+  Circle(this.position, this.id, {this.size = 30.0, this.selected = false});
+
+  Map<String, dynamic> toJson() {
+    return {
+      'position': {
+        'dx': position.dx,
+        'dy': position.dy,
+      },
+      'id': id,
+      'selected': selected,
+      'size': size,
+      'name': name,
+      'description': description,
+    };
+  }
+
+  static Circle fromJson(Map<String, dynamic> json) {
+    return Circle(
+      Offset(json['position']['dx'], json['position']['dy']),
+      json['id'],
+      size: json['size'],
+      // Add other fields as needed
+    )
+      ..name = json['name']
+      ..description = json['description']
+      ..selected = json['selected'];
+  }
+
+}
 
 class _EditMapPageState extends State<EditMapPage> {
   List<String> floorOptions = [];
   String? selectedFloor;
   Image? uploadedImage;
   bool hasImage = false;
+  Size? imageSize;
 
+  final GlobalKey imageKey = GlobalKey();
+
+  List<Circle> circles = [];
+
+  double _scaleFactor = 1.0;
+  static const double MIN_SIZE = 10.0;  // Minimum circle size
+  static const double MAX_SIZE = 100.0;  // Maximum circle size
+  static const double SCALE_MULTIPLIER = 0.05;  // Adjust this value to control the scaling effect
 
   @override
   void initState() {
     super.initState();
     _generateFloorOptions(widget.numberOfFloors);
     _checkAndDownloadImage();
+    _loadCirclesFromFirebase();
   }
+
+  Future<void> _setImageSize() async {
+    await Future.delayed(Duration.zero); // To make sure the context is built.
+    final RenderBox renderBox = imageKey.currentContext!.findRenderObject() as RenderBox;
+    final Size size = renderBox.size;
+
+    setState(() {
+      imageSize = size;
+    });
+  }
+
+  Future<void> _saveCirclesToFirebase() async {
+    final circlesJson = circles.map((circle) => circle.toJson()).toList();
+    final circlesString = jsonEncode(circlesJson);
+
+    final mapId = '${widget.profileName}_${selectedFloor}';
+
+    final ref = FirebaseFirestore.instance.collection('maps').doc(mapId);
+
+    await ref.set({'circles': circlesString});
+  }
+
+
+
+  Future<void> _loadCirclesFromFirebase() async {
+    final mapId = '${widget.profileName}_${selectedFloor}';
+    final ref = FirebaseFirestore.instance.collection('maps').doc(mapId);
+
+    final doc = await ref.get();
+    if (doc.exists) {
+      final data = doc.data() as Map<String, dynamic>;
+      final circlesString = data['circles'];
+      final circlesJson = jsonDecode(circlesString) as List;
+      final loadedCircles = circlesJson.map((circleJson) => Circle.fromJson(circleJson)).toList();
+
+      setState(() {
+        circles = loadedCircles;
+      });
+    }
+  }
+
 
   _generateFloorOptions(int floors) {
     floorOptions.clear();
@@ -168,7 +259,6 @@ class _EditMapPageState extends State<EditMapPage> {
   Future<void> _uploadImage() async {
     final imagePicker = ImagePicker();
     final image = await imagePicker.pickImage(source: ImageSource.gallery);
-
     if (image == null) return;
 
     final imageName = '${widget.profileName}_${selectedFloor}_map.png';
@@ -196,7 +286,13 @@ class _EditMapPageState extends State<EditMapPage> {
 
       setState(() {
         hasImage = true;
-        uploadedImage = Image.network(result.toString()); // Using the image from Firebase Storage
+        uploadedImage = Image.network(
+          result.toString(),
+          fit: BoxFit.contain,
+          key: imageKey,
+        );
+        _setImageSize();
+        ; // Using the image from Firebase Storage
       });
     } catch (e) {
       print('Error fetching image: $e');
@@ -204,48 +300,244 @@ class _EditMapPageState extends State<EditMapPage> {
         hasImage = false;
       });
     }
+
+    _loadCirclesFromFirebase();
   }
+
+  Future<void> _showCircleInfoDialog(Circle circle) async {
+    TextEditingController nameController = TextEditingController(text: circle.name);
+    TextEditingController descriptionController = TextEditingController(text: circle.description);
+
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // User must tap the button to close the dialog
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Circle Information'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    hintText: 'Name',
+                  ),
+                ),
+                SizedBox(height: 10),
+                TextField(
+                  controller: descriptionController,
+                  decoration: InputDecoration(
+                    hintText: 'Description',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Save'),
+              onPressed: () {
+                setState(() {
+                  circle.name = nameController.text.trim();
+                  circle.description = descriptionController.text.trim();
+                });
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCircleOptions(Circle circle) {
+    showModalBottomSheet(
+        context: context,
+        builder: (BuildContext context) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: Icon(Icons.drag_handle),
+                title: Text('Move'),
+                onTap: () {
+                  Navigator.pop(context);
+                  // Set circle to moving state, this will allow user to drag the circle
+                  setState(() {
+                    circles.forEach((c) => c.selected = false);
+                    circle.selected = true;
+                  });
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.edit),
+                title: Text('Edit'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showCircleInfoDialog(circle) ; // Use your existing method to show the prompt
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.delete),
+                title: Text('Delete'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  // Delete circle from the UI
+                  setState(() {
+                    circles.remove(circle);
+                  });
+                  // Delete circle from Firebase
+                  // await _deleteCircleFromFirebase(circle);
+                },
+              ),
+            ],
+          );
+        });
+  }
+
+
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Edit ${widget.profileName}')),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: DropdownButton<String>(
-              value: selectedFloor,
-              items: floorOptions.map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (newValue) {
-                setState(() {
-                  selectedFloor = newValue;
-                });
-                _checkAndDownloadImage();
-              },
+      body: GestureDetector(
+        onScaleUpdate: (ScaleUpdateDetails details) {
+          setState(() {
+            // Find which circle is selected
+            final selectedCircle = circles.firstWhere(
+                    (element) => element.selected == true, orElse: () => Circle(Offset.zero, 'none'));
+
+            // Update the size of the selected circle using the scale factor
+            if (selectedCircle.id != 'none') {
+              double scaleChange = 1 + (details.scale - 1) * SCALE_MULTIPLIER;
+              double newSize = selectedCircle.size * scaleChange;
+
+              // Apply constraints
+              if (newSize < MIN_SIZE) {
+                newSize = MIN_SIZE;
+              } else if (newSize > MAX_SIZE) {
+                newSize = MAX_SIZE;
+              }
+
+              selectedCircle.size = newSize;
+            }
+          });
+        },
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: DropdownButton<String>(
+                    value: selectedFloor,
+                    items: floorOptions.map((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value),
+                      );
+                    }).toList(),
+                    onChanged: (newValue) {
+                      setState(() {
+                        selectedFloor = newValue;
+                      });
+                      _checkAndDownloadImage();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (BuildContext context, BoxConstraints constraints) {
+                      double maxWidth = constraints.maxWidth;
+                      double maxHeight = constraints.maxHeight;
+
+                      return hasImage && uploadedImage != null
+                          ? Container(
+                        key: imageKey,
+                        width: maxWidth,
+                        height: maxHeight,
+                        child: Image(
+                          image: uploadedImage!.image,
+                          fit: BoxFit.contain,
+                        ),
+                      )
+                          : ElevatedButton(
+                        onPressed: _uploadImage,
+                        child: Text('Upload Image'),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ),
-          // ... Other Widgets ...
-          if (hasImage && uploadedImage != null)
-            Center(
-              child: uploadedImage,
+            Positioned(
+              left: 10,
+              bottom: 10,
+              child: ElevatedButton(
+                onPressed: () {
+                  final RenderBox renderBox = imageKey.currentContext!.findRenderObject() as RenderBox;
+                  final position = renderBox.localToGlobal(Offset.zero);
+
+                  setState(() {
+                    circles.add(Circle(position, DateTime.now().toIso8601String()));
+                  });
+                },
+                child: Text('Add Circle'),
+              ),
             ),
-          if (!hasImage)
-            ElevatedButton(
-              onPressed: _uploadImage,
-              child: Text('Upload Image'),
+            Positioned(
+              right: 10,  // 10 pixels from the right
+              bottom: 10, // 10 pixels from the bottom
+              child: ElevatedButton(
+                onPressed: () async {
+                  await _saveCirclesToFirebase();
+                  Navigator.pop(context);
+                },
+                child: Text('Save & Exit'),
+              ),
             ),
-        ],
+            ...circles.map((circle) {
+              return Positioned(
+                left: circle.position.dx,
+                top: circle.position.dy,
+                child: GestureDetector(
+                  onTap: () async {
+                    _showCircleOptions(circle);
+                  },
+                  onPanUpdate: (details) {
+                    if (circle.selected == true) {
+                      setState(() {
+                        circle.position = Offset(
+                          circle.position.dx + details.delta.dx,
+                          circle.position.dy + details.delta.dy,
+                        );
+                      });
+                    }
+                  },
+                  child: Container(
+                    width: circle.size,
+                    height: circle.size,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: circle.selected == true
+                          ? Colors.green
+                          : Colors.blue,
+                    ),
+                  ),
+                ),
+
+              );
+            }).toList(),
+          ],
+        ),
+
       ),
     );
   }
