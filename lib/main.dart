@@ -149,7 +149,6 @@ class Circle {
   String? name;
   String? description;
 
-
   Circle(this.position, this.id, {this.size = 30.0, this.selected = false});
 
   Map<String, dynamic> toJson() {
@@ -185,7 +184,7 @@ class _EditMapPageState extends State<EditMapPage> {
   String? selectedFloor;
   Image? uploadedImage;
   bool hasImage = false;
-  Size? imageSize;
+
 
   final GlobalKey imageKey = GlobalKey();
 
@@ -202,16 +201,6 @@ class _EditMapPageState extends State<EditMapPage> {
     _generateFloorOptions(widget.numberOfFloors);
     _checkAndDownloadImage();
     _loadCirclesFromFirebase();
-  }
-
-  Future<void> _setImageSize() async {
-    await Future.delayed(Duration.zero); // To make sure the context is built.
-    final RenderBox renderBox = imageKey.currentContext!.findRenderObject() as RenderBox;
-    final Size size = renderBox.size;
-
-    setState(() {
-      imageSize = size;
-    });
   }
 
   Future<void> _saveCirclesToFirebase() async {
@@ -286,13 +275,7 @@ class _EditMapPageState extends State<EditMapPage> {
 
       setState(() {
         hasImage = true;
-        uploadedImage = Image.network(
-          result.toString(),
-          fit: BoxFit.contain,
-          key: imageKey,
-        );
-        _setImageSize();
-        ; // Using the image from Firebase Storage
+        uploadedImage = Image.network(result.toString()); // Using the image from Firebase Storage
       });
     } catch (e) {
       print('Error fetching image: $e');
