@@ -165,6 +165,8 @@ class Circle {
   String? name;
   String? description;
 
+
+
   Circle(this.position, this.id, {this.size = 30.0, this.selected = false});
 
   Map<String, dynamic> toJson() {
@@ -754,72 +756,83 @@ class _UserMainPageState extends State<UserMainPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Edit ${widget.profileName}')),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: AppBar(title: Text('View ${widget.profileName}')),
+      body: Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: DropdownButton<String>(
-              value: selectedFloor,
-              items: floorOptions.map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (newValue) {
-                setState(() {
-                  selectedFloor = newValue;
-                });
-                _checkAndDownloadImage();
-              },
-            ),
-          ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-                double maxWidth = constraints.maxWidth;
-                double maxHeight = constraints.maxHeight;
-
-                return hasImage && uploadedImage != null
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: DropdownButton<String>(
+                  value: selectedFloor,
+                  items: floorOptions.map((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    );
+                  }).toList(),
+                  onChanged: (newValue) {
+                    setState(() {
+                      selectedFloor = newValue;
+                    });
+                    _checkAndDownloadImage();
+                  },
+                ),
+              ),
+              Align(
+                alignment: Alignment.topCenter,
+                child: hasImage && uploadedImage != null
                     ? Container(
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.red, width: 2),
                   ),
-                  width: maxWidth,
-                  height: maxHeight,
+                  width: MediaQuery.of(context).size.width,
+                  height: MediaQuery.of(context).size.height / 2,
                   child: Image(
                     image: uploadedImage!.image,
                     fit: BoxFit.contain,
+                    alignment: Alignment.center,
                   ),
                 )
-                    : CircularProgressIndicator(); // Show loading indicator while image is being fetched
-              },
-            ),
-          ),
-          Expanded(
-            child: Stack(
-              children: circles.map((circle) {
-                return Positioned(
-                  left: circle.position.dx,
-                  top: circle.position.dy,
-                  child: Container(
-                    width: circle.size,
-                    height: circle.size,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.blue,
+                    : Container(
+                  width: MediaQuery.of(context).size.width,
+                  height: MediaQuery.of(context).size.height / 2,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
+                  child: Center(
+                    child: Text(
+                      "Please upload a map.",
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                );
-              }).toList(),
-            ),
+                ),
+              ),
+            ],
           ),
+          ...circles.map((circle) {
+            return Positioned(
+              left: circle.position.dx,
+              top: circle.position.dy,
+              child: Container(
+                width: circle.size,
+                height: circle.size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: circle.selected == true ? Colors.green : Colors.blue,
+                ),
+              ),
+            );
+          }).toList(),
         ],
       ),
     );
