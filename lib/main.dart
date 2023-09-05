@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:convert';
+import 'package:vibration/vibration.dart';
 
 
 final FlutterTts flutterTts = FlutterTts();
@@ -164,10 +165,11 @@ class Circle {
   double size; // New property for size
   String? name;
   String? description;
+  DateTime? lastTriggered;
 
 
 
-  Circle(this.position, this.id, {this.size = 30.0, this.selected = false});
+  Circle(this.position, this.id,{this.size = 30.0, this.selected = false});
 
   Map<String, dynamic> toJson() {
     return {
@@ -692,6 +694,10 @@ class _UserMainPageState extends State<UserMainPage> {
   String? selectedFloor;
   Image? uploadedImage;
   bool hasImage = false;
+  bool isNavigationMode = true;  // true for Navigation Mode, false for Guide Mode
+
+  Map<String, DateTime> lastTriggeredTime = {}; //Used to check the triggered circle time
+  Map<String, DateTime> lastAudioEndTime = {}; // To check the last audio (for vibration)
 
   List<Circle> circles = [];
 
@@ -701,6 +707,12 @@ class _UserMainPageState extends State<UserMainPage> {
     _generateFloorOptions(widget.numberOfFloors);
     _checkAndDownloadImage();
     _loadCirclesFromFirebase();
+  }
+
+  Future<void> _announceNumberOfCircles() async {
+    final FlutterTts flutterTts = FlutterTts();
+    String textToAnnounce = "There are ${circles.length} labels on this floor.";
+    await flutterTts.speak(textToAnnounce);
   }
 
   Future<void> _loadCirclesFromFirebase() async {
@@ -718,6 +730,8 @@ class _UserMainPageState extends State<UserMainPage> {
       setState(() {
         circles = loadedCircles;
       });
+
+      _announceNumberOfCircles(); // Announce the number of circles
     }
   }
 
@@ -753,87 +767,200 @@ class _UserMainPageState extends State<UserMainPage> {
     _loadCirclesFromFirebase();
   }
 
+  void _handleTouch(Offset touchPosition) {
+    bool didVibrate = false;
+
+    if(isNavigationMode){
+      for (var circle in circles) {
+        // Check if the circle's audio has ended recently
+        DateTime? lastAudioEnd = lastAudioEndTime[circle.name];
+        if (lastAudioEnd != null) {
+          DateTime now = DateTime.now();
+          Duration timeSinceLastAudioEnd = now.difference(lastAudioEnd);
+
+          // If the duration since the last audio end is less than 5 seconds, do not vibrate
+          if (timeSinceLastAudioEnd.inSeconds < 10) {
+            continue;  // Skip to the next circle
+          }
+        }
+
+        double distance = (circle.position - touchPosition).distance;
+        double effectiveSize = circle.size;
+
+        // Conditionally extend the size for small circles
+        if (circle.size < 15) {
+          effectiveSize = circle.size + 5.0;  // Increase the size by 5 units for easier touching
+        }
+
+        if (distance < effectiveSize) {
+          // Inside the effective circle area
+          _readOutCircleInfo(circle);
+        }
+
+        if (distance < circle.size) {
+          // Inside the circle
+          _readOutCircleInfo(circle); // Function to read out the circle's name and description
+        } else if (distance < circle.size + 50) {
+          // Approaching the circle but not inside it
+          if (!didVibrate) {
+            int duration = (1000 / (distance / circle.size)).toInt();
+
+            // Ensure the vibration duration is within an acceptable range
+            if (duration > 400) duration = 400;
+            if (duration < 50) duration = 50;
+
+            Vibration.vibrate(duration: duration, intensities: [1, 255]);
+            didVibrate = true;
+          }
+        }
+      }
+    } else {
+
+    }
+
+  }
+
+  Future<void> _readOutCircleInfo(Circle circle) async {
+    final FlutterTts flutterTts = FlutterTts();
+
+    // Stopping the vibration if it's still happening
+    Vibration.cancel();
+
+    // Check if the circle has been triggered recently
+    DateTime? lastTime = lastTriggeredTime[circle.name];
+    if (lastTime != null) {
+      DateTime now = DateTime.now();
+      Duration timeSinceLastTrigger = now.difference(lastTime);
+
+      // If the duration since the last trigger is less than 10 seconds, do not trigger again
+      if (timeSinceLastTrigger.inSeconds < 10) {
+        return;
+      }
+    }
+
+    // Update the last triggered time for this circle
+    if (circle.name != null) {
+      lastTriggeredTime[circle.name!] = DateTime.now();
+    } else {
+      // Handle the null case. Perhaps log an error or throw an exception.
+    }
+
+    String textToRead = "This is ${circle.name}. ${circle.description}";
+    await flutterTts.speak(textToRead);
+
+    // Update the last audio end time for this circle
+    if (circle.name != null) {
+      lastAudioEndTime[circle.name!] = DateTime.now();
+    }
+
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('View ${widget.profileName}')),
-      body: Stack(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: DropdownButton<String>(
-                  value: selectedFloor,
-                  items: floorOptions.map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
-                  onChanged: (newValue) {
-                    setState(() {
-                      selectedFloor = newValue;
-                    });
-                    _checkAndDownloadImage();
-                  },
+      body: GestureDetector(
+        onPanUpdate: (details) {
+          _handleTouch(details.localPosition);
+        },
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(widget.profileName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 ),
-              ),
-              Align(
-                alignment: Alignment.topCenter,
-                child: hasImage && uploadedImage != null
-                    ? Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red, width: 2),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      DropdownButton<String>(
+                        value: selectedFloor,
+                        items: floorOptions.map((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value),
+                          );
+                        }).toList(),
+                        onChanged: (newValue) {
+                          setState(() {
+                            selectedFloor = newValue;
+                          });
+                          _checkAndDownloadImage();
+                          _announceNumberOfCircles();
+                        },
+                      ),
+                      Row(
+                        children: [
+                          Text(isNavigationMode ? 'Nav Mode' : 'Guide Mode'),
+                          Switch(
+                            value: isNavigationMode,
+                            onChanged: (bool value) {
+                              setState(() {
+                                isNavigationMode = value;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  width: MediaQuery.of(context).size.width,
-                  height: MediaQuery.of(context).size.height / 2,
-                  child: Image(
-                    image: uploadedImage!.image,
-                    fit: BoxFit.contain,
-                    alignment: Alignment.center,
-                  ),
-                )
-                    : Container(
-                  width: MediaQuery.of(context).size.width,
-                  height: MediaQuery.of(context).size.height / 2,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red, width: 2),
-                  ),
-                  child: Center(
-                    child: Text(
-                      "Please upload a map.",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                ),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: hasImage && uploadedImage != null
+                      ? Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 2),
+                    ),
+                    width: MediaQuery.of(context).size.width,
+                    height: MediaQuery.of(context).size.height / 2,
+                    child: Image(
+                      image: uploadedImage!.image,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                    ),
+                  )
+                      : Container(
+                    width: MediaQuery.of(context).size.width,
+                    height: MediaQuery.of(context).size.height / 2,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 2),
+                    ),
+                    child: Center(
+                      child: Text(
+                        "Please upload a map.",
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          ...circles.map((circle) {
-            return Positioned(
-              left: circle.position.dx,
-              top: circle.position.dy,
-              child: Container(
-                width: circle.size,
-                height: circle.size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: circle.selected == true ? Colors.green : Colors.blue,
+              ],
+            ),
+            ...circles.map((circle) {
+              return Positioned(
+                left: circle.position.dx,
+                top: circle.position.dy,
+                child: Container(
+                  width: circle.size,
+                  height: circle.size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: circle.selected == true ? Colors.green : Colors.blue,
+                  ),
                 ),
-              ),
-            );
-          }).toList(),
-        ],
+              );
+            }).toList(),
+          ],
+        ),
       ),
     );
   }
