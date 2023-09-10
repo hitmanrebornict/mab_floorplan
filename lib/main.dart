@@ -500,7 +500,7 @@ class _EditMapPageState extends State<EditMapPage> {
                     circles.add(Circle(position, DateTime.now().toIso8601String()));
                   });
                 },
-                child: Text('Add Circle'),
+                child: Text('Add Label'),
               ),
             ),
             Positioned(
@@ -696,6 +696,7 @@ class _UserMainPageState extends State<UserMainPage> {
   Offset? _finalSwipePosition;
 
   bool hasReachedEntrance = false;
+  String _currentSpokenText = "";
 
   @override
   void initState() {
@@ -706,7 +707,7 @@ class _UserMainPageState extends State<UserMainPage> {
   }
 
   Future<void> _announceNumberOfCircles() async {
-    String textToAnnounce = "There are ${circles.length} labels on this floor.";
+    String textToAnnounce = "Please turn off TalkBack or VoiceOver during the navigation. You can turn them on once the navigation is end. There are ${circles.length} labels on this floor.";
     await flutterTts.speak(textToAnnounce);
   }
 
@@ -800,10 +801,10 @@ class _UserMainPageState extends State<UserMainPage> {
         if (distance < circle.size) {
           // Inside the circle
           _readOutCircleInfo(circle); // Function to read out the circle's name and description
-        } else if (distance < circle.size + 50) {
+        } else if (distance < circle.size + 30) {
           // Approaching the circle but not inside it
           if (!didVibrate) {
-            int intensity = ((circle.size + 50 - distance) / (circle.size + 50) * 255).toInt();
+            int intensity = ((circle.size + 30- distance) / (circle.size + 30) * 255).toInt();
             intensity = intensity.clamp(1, 255);  // Ensuring that the intensity is between 1 and 255
 
             Vibration.vibrate(duration: 100, intensities: [intensity, intensity]);  // Using the calculated intensity
@@ -853,7 +854,7 @@ class _UserMainPageState extends State<UserMainPage> {
           // Inside the circle
 
           _readOutCircleInfo(circle); // Function to read out the circle's name and description
-        } else if (distance < circle.size + 50) {
+        } else if (distance < circle.size + 30) {
           // Approaching the circle but not inside it
           if (!didVibrate) {
             int duration = (1000 / (distance / circle.size)).toInt();
@@ -902,7 +903,13 @@ class _UserMainPageState extends State<UserMainPage> {
     }
 
     String textToRead = "This is ${circle.name}. ${circle.description}";
+
+    setState(() {
+      _currentSpokenText = textToRead;
+    });
     await flutterTts.speak(textToRead);
+
+
 
     // Update the last audio end time for this circle
     if (circle.name != null) {
@@ -930,6 +937,9 @@ class _UserMainPageState extends State<UserMainPage> {
         if (direction != 'unknown') {
           combinedMessage += " Please move your finger $direction to get to ${nearest.name}.";
         }
+        setState(() {
+          _currentSpokenText = combinedMessage;
+        });
         await flutterTts.speak(combinedMessage);
       }
       else{
@@ -1180,6 +1190,17 @@ class _UserMainPageState extends State<UserMainPage> {
                     ),
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    _currentSpokenText,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
               ],
             ),
             ...circles.map((circle) {
@@ -1286,11 +1307,151 @@ class TutorialPage extends StatelessWidget {
                   context,
                   MaterialPageRoute(builder: (context) => GestureTutorialPage()),
                 );
+              } else if (tutorialItems[index] == 'Map Customization') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => MapCustomizationTutorialPage()),
+                );
+              } else if (tutorialItems[index] == 'Label') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => LabelTutorialPage()),
+                );
               }
             },
             trailing: Icon(Icons.arrow_forward_ios),
           );
         },
+      ),
+    );
+  }
+}
+
+class MapCustomizationTutorialPage extends StatefulWidget {
+  @override
+  _MapCustomizationTutorialPageState createState() => _MapCustomizationTutorialPageState();
+}
+
+class _MapCustomizationTutorialPageState extends State<MapCustomizationTutorialPage> {
+  List<String> tutorialSteps = [
+    "1. Navigating to the Edit Map Page:\n\nWhen you want to edit a map, you'll start by navigating to the EditMapPage where the title of the page displays 'Edit (Profile Name)'.",
+    "2. Selecting a Floor:\n\nAt the top of the screen, you'll see a dropdown menu. This menu lists all available floors. To select a floor to edit, tap on the dropdown menu, choose the desired floor (e.g., 'Floor 1', 'Floor 2'), and the selection will be updated. After selecting a floor, the app will automatically check and download an existing image of the map, if available.",
+    "3. Uploading an Image for the Map:\n\nNext to the floor dropdown, you'll find an Upload Image button. Tapping on this button will allow you to choose an image from your device's gallery. Once an image is selected, it will be displayed on the screen inside a red-bordered container. Note: If you don't upload an image, you'll see a message prompting you to 'Please upload a map.'",
+    "4. Adding Labels to the Map:\n\nAt the bottom left of the screen, there's an Add Label button. Tapping this button will add a blue label to the map image's top-left corner. You can tap on any existing label to access more options.",
+    "5. Editing label Information:\n\nOnce a label is added, tap on it to open a modal with three options: Move: This allows you to drag the label around the map. Edit: Opens a dialog where you can set the label's 'Name' and 'Description'. Delete: This will remove the label from the map.",
+    "6. Resizing the label:\n\nPinch in/out on a selected label (the green one) to resize it. The label will respect the minimum and maximum size limits while resizing.",
+    "7. Saving the Edits:\n\nAfter making all the desired changes, tap on the Save & Exit button at the bottom right of the screen. This will save the labels' information to Firebase and return you to the previous screen."
+  ];
+
+  int currentStep = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Map Customization Tutorial")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tutorialSteps[currentStep].split(":")[0] + ":",
+                      style: TextStyle(
+                        fontSize: 20.0,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 8.0),
+                    Text(tutorialSteps[currentStep].split(":").sublist(1).join(":").trim()),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 16.0),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ElevatedButton(
+                  onPressed: currentStep > 0
+                      ? () {
+                    setState(() {
+                      currentStep--;
+                    });
+                  }
+                      : null,
+                  child: Text("Previous"),
+                ),
+                ElevatedButton(
+                  onPressed: currentStep < tutorialSteps.length - 1
+                      ? () {
+                    setState(() {
+                      currentStep++;
+                    });
+                  }
+                      : null,
+                  child: Text("Next"),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class LabelTutorialPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Labels on the Map'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView(
+          children: <Widget>[
+            Text(
+              "In the app, you'll come across different circles on the map. These circles are known as Labels. Each label serves as a beacon of information about specific locations or points of interest on the map. Here's what you need to know:",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 20),
+            Text(
+              "Information within Labels:",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "- Name: A short identifier or title for the location or point of interest.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "- Description: A more detailed explanation or information about that specific point.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 20),
+            Text(
+              "Interacting with Labels:",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "- Vibration Feedback: As you get closer to a label, your device will start to vibrate. The intensity of the vibration will increase as you approach the center of the label.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "- Audio Information: When you hover over a label, the app will read out the information stored in it. You'll hear the name of the location or point of interest followed by its description. This audio guide ensures you understand the significance of the point you're currently at.",
+              style: TextStyle(fontSize: 18),
+            ),
+          ],
+        ),
       ),
     );
   }

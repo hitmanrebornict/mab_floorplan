@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "353294902620",
+    "project_id": "mab-project-43f31",
+    "storage_bucket": "mab-project-43f31.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:353294902620:android:2414980b2be8cfaa490d99",
+        "android_client_info": {
+          "package_name": "com.example.mab_floorplan"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "353294902620-pqd00o7h5b155r6e9mu8h2k7ki89f1kh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZQCGnZLyWpQwcKov5IHD7T0B5j8mvmkY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "353294902620-pqd00o7h5b155r6e9mu8h2k7ki89f1kh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
