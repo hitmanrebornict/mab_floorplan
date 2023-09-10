@@ -156,8 +156,6 @@ class Circle {
   String? description;
   DateTime? lastTriggered;
 
-
-
   Circle(this.position, this.id,{this.size = 30.0, this.selected = false});
 
   Map<String, dynamic> toJson() {
@@ -693,6 +691,11 @@ class _UserMainPageState extends State<UserMainPage> {
   Set<String> visitedCircles = {}; // Track visited circles by their names.
   Circle? currentCircle; // The current circle the user is guided towards.
 
+  int _pointersCount = 0; // to keep track of number of touch points
+  Offset? _initialSwipePosition;
+  Offset? _finalSwipePosition;
+
+  bool hasReachedEntrance = false;
 
   @override
   void initState() {
@@ -767,6 +770,8 @@ class _UserMainPageState extends State<UserMainPage> {
 
     if(isNavigationMode){
       for (var circle in circles) {
+
+
         // Check if the circle's audio has ended recently
         DateTime? lastAudioEnd = lastAudioEndTime[circle.name];
         if (lastAudioEnd != null) {
@@ -798,13 +803,10 @@ class _UserMainPageState extends State<UserMainPage> {
         } else if (distance < circle.size + 50) {
           // Approaching the circle but not inside it
           if (!didVibrate) {
-            int duration = (1000 / (distance / circle.size)).toInt();
+            int intensity = ((circle.size + 50 - distance) / (circle.size + 50) * 255).toInt();
+            intensity = intensity.clamp(1, 255);  // Ensuring that the intensity is between 1 and 255
 
-            // Ensure the vibration duration is within an acceptable range
-            if (duration > 400) duration = 400;
-            if (duration < 50) duration = 50;
-
-            Vibration.vibrate(duration: duration, intensities: [1, 255]);
+            Vibration.vibrate(duration: 100, intensities: [intensity, intensity]);  // Using the calculated intensity
             didVibrate = true;
           }
         }
@@ -812,6 +814,16 @@ class _UserMainPageState extends State<UserMainPage> {
     } else {
 
       for (var circle in circles) {
+        // If the user hasn't reached the entrance, only respond to the entrance circle
+        if (!hasReachedEntrance && circle.name != 'Entrance') {
+          continue;
+        }
+
+        // If the circle has been visited, skip it
+        if (visitedCircles.contains(circle.name)) {
+          continue;
+        }
+
         // Check if the circle's audio has ended recently
         DateTime? lastAudioEnd = lastAudioEndTime[circle.name];
         if (lastAudioEnd != null) {
@@ -839,6 +851,7 @@ class _UserMainPageState extends State<UserMainPage> {
 
         if (distance <= circle.size) {
           // Inside the circle
+
           _readOutCircleInfo(circle); // Function to read out the circle's name and description
         } else if (distance < circle.size + 50) {
           // Approaching the circle but not inside it
@@ -863,6 +876,7 @@ class _UserMainPageState extends State<UserMainPage> {
 
   Future<void> _readOutCircleInfo(Circle circle) async {
     flutterTts.awaitSpeakCompletion(true);
+
 
     print("Attempting to read out info for circle: ${circle.name}");
     // Stopping the vibration if it's still happening
@@ -897,9 +911,21 @@ class _UserMainPageState extends State<UserMainPage> {
 
     if(!isNavigationMode){
       Circle? nearest = findNearestCircle(circle.position, excluding: circle);
+      if (circle.name == 'Entrance') {
+        hasReachedEntrance = true;
+      }
+
+      if (visitedCircles.contains(circle.name)) {
+        return;
+      }
+
       if(nearest != null) {
+        if (circle.name != null) {
+          visitedCircles.add(circle.name!);
+        }
         String combinedMessage = "The nearest room is ${nearest.name}.";
         print("The nearest room is ${nearest.name}.");
+        print(visitedCircles);
         String direction = determineDirection(circle.position, nearest.position);
         if (direction != 'unknown') {
           combinedMessage += " Please move your finger $direction to get to ${nearest.name}.";
@@ -913,6 +939,8 @@ class _UserMainPageState extends State<UserMainPage> {
   }
 
   void startGuideMode() async {
+    resetVisitedCircles();
+    hasReachedEntrance = false;
     flutterTts.awaitSpeakCompletion(true);
     // A helper function to handle sequential speech.
     Future<void> sequentialSpeak(List<String> messages) async {
@@ -965,9 +993,9 @@ class _UserMainPageState extends State<UserMainPage> {
     }
 
     // Add the nearest circle to the visited circles
-    if (nearestCircle != null) {
-      visitedCircles.add(nearestCircle.name!);
-    }
+    // if (nearestCircle != null) {
+    //   visitedCircles.add(nearestCircle.name!);
+    // }
 
     return nearestCircle;
   }
@@ -1003,14 +1031,70 @@ class _UserMainPageState extends State<UserMainPage> {
     });
   }
 
+  void _handleTwoFingerSwipe() {
+    if (_initialSwipePosition != null && _finalSwipePosition != null) {
+      if (_finalSwipePosition!.dx - _initialSwipePosition!.dx > 100) {
+        // This is a right swipe
+        _goToNextFloor();
+      } else if (_initialSwipePosition!.dx - _finalSwipePosition!.dx > 100) {
+        // This is a left swipe
+        _goToPreviousFloor();
+      }
+    }
+    _initialSwipePosition = null;
+    _finalSwipePosition = null;
+  }
+
+  void _goToNextFloor() {
+    if (floorOptions.indexOf(selectedFloor!) < floorOptions.length - 1) {
+      setState(() {
+        selectedFloor = floorOptions[floorOptions.indexOf(selectedFloor!) + 1];
+      });
+      _checkAndDownloadImage();
+      _announceNumberOfCircles();
+    } else {
+      flutterTts.speak("You are on the top floor. No more floors above.");
+    }
+  }
+
+  void _goToPreviousFloor() {
+    if (floorOptions.indexOf(selectedFloor!) > 0) {
+      setState(() {
+        selectedFloor = floorOptions[floorOptions.indexOf(selectedFloor!) - 1];
+      });
+      _checkAndDownloadImage();
+      _announceNumberOfCircles();
+    } else {
+      flutterTts.speak("You are on the ground floor. No more floors below.");
+    }
+  }
+
     @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('View ${widget.profileName}')),
-      body: GestureDetector(
-        onDoubleTap: _switchMode,
-        onPanUpdate: (details) {
-          _handleTouch(details.localPosition);
+      body: Listener(
+        onPointerDown: (details) {
+          _pointersCount++;
+          if (_pointersCount == 2) {
+            _initialSwipePosition = details.position;
+          }
+        },
+        onPointerUp: (details) {
+          if (_pointersCount == 2) {
+            _finalSwipePosition = details.position;
+          }
+           _pointersCount--;
+          if (_initialSwipePosition != null && _finalSwipePosition != null) {
+          _handleTwoFingerSwipe();
+          }
+        },
+        child: GestureDetector(
+          onDoubleTap: _switchMode,
+          onPanUpdate: (details) {
+          if (_pointersCount < 2) {
+            _handleTouch(details.localPosition);
+          }
         },
         child: Stack(
           children: [
@@ -1115,6 +1199,7 @@ class _UserMainPageState extends State<UserMainPage> {
           ],
         ),
       ),
+      )
     );
   }
 }
@@ -1214,6 +1299,7 @@ class TutorialPage extends StatelessWidget {
 class GestureTutorialPage extends StatelessWidget {
   final List<String> gestureItems = [
     'Double Tap',
+    'Two Finger Swipe',  // Added this
     // Add more gestures here if needed
   ];
 
@@ -1231,6 +1317,8 @@ class GestureTutorialPage extends StatelessWidget {
             onTap: () {
               if (gestureItems[index] == 'Double Tap') {
                 _showDoubleTapDialog(context);
+              } else if (gestureItems[index] == 'Two Finger Swipe') {
+                _showTwoFingerSwipeDialog(context);  // Added this
               }
               // Handle other gesture taps here
             },
@@ -1248,6 +1336,26 @@ class GestureTutorialPage extends StatelessWidget {
         title: Text('Double Tap'),
         content: Text(
             'Double tapping allows you to quickly switch between modes. When in guide mode, double tap to switch to navigation mode and vice versa.'
+        ),
+        actions: <Widget>[
+          TextButton(
+            child: Text('Close'),
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+          )
+        ],
+      ),
+    );
+  }
+
+  _showTwoFingerSwipeDialog(BuildContext context) {  // New method
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Two Finger Swipe'),
+        content: Text(
+            'Use a two-finger swipe gesture to navigate between floors. Swipe right with two fingers to move to the next floor and swipe left to move to the previous floor.'
         ),
         actions: <Widget>[
           TextButton(
