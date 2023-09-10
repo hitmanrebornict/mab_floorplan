@@ -1,9 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:photo_view/photo_view.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,6 +13,7 @@ import 'package:vibration/vibration.dart';
 
 
 final FlutterTts flutterTts = FlutterTts();
+
 
 Future<void> _speak(String text, {VoidCallback? onComplete}) async {
   await flutterTts.setLanguage('en-US');
@@ -41,15 +40,6 @@ void main() async {
 final FirebaseFirestore firestore = FirebaseFirestore.instance;
 final CollectionReference profiles = firestore.collection('profiles');
 
-// Future<void> createProfile(String profileName, int numberOfFloors) async {
-//   return profiles
-//       .add({
-//     'name': profileName,
-//     'numberOfFloors': numberOfFloors
-//   })
-//       .then((value) => print("Profile Added"))
-//       .catchError((error) => print("Failed to add profile: $error"));
-// }
 
 class FloorPlanApp extends StatelessWidget {
   @override
@@ -149,7 +139,6 @@ class _CreateProfilePageState extends State<CreateProfilePage> {
 class EditMapPage extends StatefulWidget {
   final String profileName;
   final int numberOfFloors;
-
 
   EditMapPage({required this.profileName, required this.numberOfFloors});
 
@@ -701,6 +690,10 @@ class _UserMainPageState extends State<UserMainPage> {
 
   List<Circle> circles = [];
 
+  Set<String> visitedCircles = {}; // Track visited circles by their names.
+  Circle? currentCircle; // The current circle the user is guided towards.
+
+
   @override
   void initState() {
     super.initState();
@@ -710,7 +703,6 @@ class _UserMainPageState extends State<UserMainPage> {
   }
 
   Future<void> _announceNumberOfCircles() async {
-    final FlutterTts flutterTts = FlutterTts();
     String textToAnnounce = "There are ${circles.length} labels on this floor.";
     await flutterTts.speak(textToAnnounce);
   }
@@ -767,8 +759,11 @@ class _UserMainPageState extends State<UserMainPage> {
     _loadCirclesFromFirebase();
   }
 
-  void _handleTouch(Offset touchPosition) {
+  Future<void> _handleTouch(Offset touchPosition) async {
     bool didVibrate = false;
+    Circle? currentCircle; // The current circle the user is guided towards.
+    Set<String> visitedCircles = {}; // Track visited circles by their names.
+
 
     if(isNavigationMode){
       for (var circle in circles) {
@@ -816,13 +811,60 @@ class _UserMainPageState extends State<UserMainPage> {
       }
     } else {
 
-    }
+      for (var circle in circles) {
+        // Check if the circle's audio has ended recently
+        DateTime? lastAudioEnd = lastAudioEndTime[circle.name];
+        if (lastAudioEnd != null) {
+          DateTime now = DateTime.now();
+          Duration timeSinceLastAudioEnd = now.difference(lastAudioEnd);
 
+          // If the duration since the last audio end is less than 5 seconds, do not vibrate
+          if (timeSinceLastAudioEnd.inSeconds < 10) {
+            continue;  // Skip to the next circle
+          }
+        }
+
+        double distance = (circle.position - touchPosition).distance;
+        double effectiveSize = circle.size;
+
+        // Conditionally extend the size for small circles
+        if (circle.size < 15) {
+          effectiveSize = circle.size + 5.0;  // Increase the size by 5 units for easier touching
+        }
+
+        if (distance < effectiveSize) {
+          // Inside the effective circle area
+          _readOutCircleInfo(circle);
+        }
+
+        if (distance <= circle.size) {
+          // Inside the circle
+          _readOutCircleInfo(circle); // Function to read out the circle's name and description
+        } else if (distance < circle.size + 50) {
+          // Approaching the circle but not inside it
+          if (!didVibrate) {
+            int duration = (1000 / (distance / circle.size)).toInt();
+
+            // Ensure the vibration duration is within an acceptable range
+            // if (duration > 400) duration = 400;
+            // if (duration < 50) duration = 50;
+
+            Vibration.vibrate(duration: duration, intensities: [1, 255]);
+            didVibrate = true;
+          }
+        }
+        if (distance < effectiveSize) {
+          // Inside the effective circle area
+          await _readOutCircleInfo(circle);  // This is async to wait for completion
+        }
+      }
+    }
   }
 
   Future<void> _readOutCircleInfo(Circle circle) async {
-    final FlutterTts flutterTts = FlutterTts();
+    flutterTts.awaitSpeakCompletion(true);
 
+    print("Attempting to read out info for circle: ${circle.name}");
     // Stopping the vibration if it's still happening
     Vibration.cancel();
 
@@ -853,14 +895,120 @@ class _UserMainPageState extends State<UserMainPage> {
       lastAudioEndTime[circle.name!] = DateTime.now();
     }
 
+    if(!isNavigationMode){
+      Circle? nearest = findNearestCircle(circle.position, excluding: circle);
+      if(nearest != null) {
+        String combinedMessage = "The nearest room is ${nearest.name}.";
+        print("The nearest room is ${nearest.name}.");
+        String direction = determineDirection(circle.position, nearest.position);
+        if (direction != 'unknown') {
+          combinedMessage += " Please move your finger $direction to get to ${nearest.name}.";
+        }
+        await flutterTts.speak(combinedMessage);
+      }
+      else{
+        await flutterTts.speak("Guide mode has ended. You've visited all rooms.");
+      }
+    }
   }
 
+  void startGuideMode() async {
+    flutterTts.awaitSpeakCompletion(true);
+    // A helper function to handle sequential speech.
+    Future<void> sequentialSpeak(List<String> messages) async {
+      if (messages.isEmpty) return;
 
-  @override
+      String currentMessage = messages.removeAt(0);
+      await flutterTts.speak(currentMessage);
+
+      // Set completion handler to speak the next message.
+      flutterTts.setCompletionHandler(() {
+        sequentialSpeak(messages);
+      });
+    }
+
+    List<String> messagesToSpeak = ["Guide mode activated. Please follow the instructions."];
+
+    // Locate the entrance circle based on its name
+    Circle? entranceCircle = circles.firstWhere((c) => c.name == 'Entrance', orElse: null);
+
+    // Start speaking the messages sequentially.
+    await sequentialSpeak(messagesToSpeak);
+  }
+
+  Circle? findNearestCircle(Offset referencePoint, {Circle? excluding}) {
+    Circle? nearestCircle;
+    double nearestDistance = double.infinity;
+
+    for (var circle in circles) {
+      // Skip if the circle is the one being excluded
+      if (excluding != null && circle.name == excluding.name) {
+        continue;
+      }
+
+      // Exclude the entrance itself based on its name
+      if (circle.name == 'Entrance') {
+        continue;
+      }
+
+      // Exclude circles that have been visited
+      if (visitedCircles.contains(circle.name)) {
+        continue;
+      }
+
+      double distance = (circle.position - referencePoint).distance;
+
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestCircle = circle;
+      }
+    }
+
+    // Add the nearest circle to the visited circles
+    if (nearestCircle != null) {
+      visitedCircles.add(nearestCircle.name!);
+    }
+
+    return nearestCircle;
+  }
+
+  String determineDirection(Offset from, Offset to) {
+    double dx = to.dx - from.dx;
+    double dy = to.dy - from.dy;
+
+    if (dy < 0 && dx.abs() < dy.abs()) return 'top';
+    if (dy > 0 && dx.abs() < dy.abs()) return 'bottom';
+    if (dx < 0 && dy.abs() < dx.abs()) return 'left';
+    if (dx > 0 && dy.abs() < dx.abs()) return 'right';
+
+    // Diagonal directions
+    if (dx > 0 && dy < 0) return 'top right';
+    if (dx < 0 && dy < 0) return 'top left';
+    if (dx > 0 && dy > 0) return 'bottom right';
+    if (dx < 0 && dy > 0) return 'bottom left';
+
+    return 'unknown';
+  }
+
+  void resetVisitedCircles() {
+    visitedCircles.clear();
+  }
+
+  void _switchMode() {
+    setState(() {  // Using setState to trigger a re-render with the updated mode
+      isNavigationMode = !isNavigationMode; // Toggle the mode
+      resetVisitedCircles();
+      String mode = isNavigationMode ? "Navigation" : "Guide";
+      flutterTts.speak("Switched to $mode mode."); // Inform the user about the mode change
+    });
+  }
+
+    @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('View ${widget.profileName}')),
       body: GestureDetector(
+        onDoubleTap: _switchMode,
         onPanUpdate: (details) {
           _handleTouch(details.localPosition);
         },
@@ -902,11 +1050,16 @@ class _UserMainPageState extends State<UserMainPage> {
                             onChanged: (bool value) {
                               setState(() {
                                 isNavigationMode = value;
+
+                                // If we're switching to Guide Mode
+                                if (!isNavigationMode) {
+                                  startGuideMode();
+                                }
                               });
                             },
                           ),
                         ],
-                      ),
+                      )
                     ],
                   ),
                 ),
@@ -967,107 +1120,143 @@ class _UserMainPageState extends State<UserMainPage> {
 }
 
 class _WelcomePageState extends State<WelcomePage> {
-  List<Offset> _buttonPositions = [];
-  List<Room> _rooms = [];
-  double _circleSize = 30.0;
 
   @override
   void initState() {
     super.initState();
-    // _loadData();
   }
 
-  // void _updateData(List<Offset> buttonPositions, double circleSize, List<Room> rooms) {
-  //   setState(() {
-  //     _buttonPositions = buttonPositions;
-  //     _circleSize = circleSize;
-  //     _rooms = rooms;
-  //   });
-  // }
-
-  // void _loadData() async {
-  //   SharedPreferences _prefs = await SharedPreferences.getInstance();
-  //   List<String>? roomNames = _prefs.getStringList('roomNames');
-  //   List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
-  //   List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
-  //   double? circleSize = _prefs.getDouble('circleSize');
-  //
-  //   if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
-  //     setState(() {
-  //       _rooms.clear();
-  //       _buttonPositions.clear();
-  //       _circleSize = circleSize;
-  //
-  //       for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
-  //         _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
-  //       }
-  //       for (String positionString in buttonPositions) {
-  //         List<String> parts = positionString.split(',');
-  //         double x = double.tryParse(parts[0]) ?? 0.0;
-  //         double y = double.tryParse(parts[1]) ?? 0.0;
-  //         _buttonPositions.add(Offset(x, y));
-  //       }
-  //     }); // Close setState here
-  //   }
-  // }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-        appBar: AppBar(
-          title: Text('Welcome'),
-        ),
-        body: Center(
-        child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-        ElevatedButton(
-        onPressed: () {
-      Navigator.push(
-          context,
-        MaterialPageRoute(builder: (context) => ChooseProfilePage()),
-      );
-        },
-          child: Text('User'),
-        ),
-          SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => AdminPage()),
-              );
-            },
-            child: Text('Admin'),
-          ),
-        ],
-        ),
-        ),
-    );
-  }
-}
-
-class UserPage extends StatelessWidget {
-  final List<Offset> buttonPositions;
-  final double circleSize;
-  final List<Room> rooms;
-
-  UserPage({
-    required this.buttonPositions,
-    required this.circleSize,
-    required this.rooms,
-  });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('User'),
+        title: Text('Welcome'),
       ),
-      body: LabelsMap(
-        buttonPositions: buttonPositions,
-        circleSize: circleSize,
-        rooms: rooms,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => ChooseProfilePage()),
+                );
+              },
+              child: Text('User'),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => AdminPage()),
+                );
+              },
+              child: Text('Admin'),
+            ),
+            SizedBox(height: 20), // Add a space between the buttons
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => TutorialPage()),
+                );
+              },
+              child: Text('Tutorial'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class TutorialPage extends StatelessWidget {
+  final List<String> tutorialItems = [
+    'Map Customization',
+    'Label',
+    'Gesture',
+    'Navigation mode',
+    'Guide mode'
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Tutorial'),
+      ),
+      body: ListView.builder(
+        itemCount: tutorialItems.length,
+        itemBuilder: (BuildContext context, int index) {
+          return ListTile(
+            title: Text(tutorialItems[index]),
+            onTap: () {
+              // Handle item tap, for example:
+              // Navigator.push(context, MaterialPageRoute(builder: (context) => SpecificTutorialPage(tutorialItems[index])));
+              if (tutorialItems[index] == 'Gesture') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => GestureTutorialPage()),
+                );
+              }
+            },
+            trailing: Icon(Icons.arrow_forward_ios),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class GestureTutorialPage extends StatelessWidget {
+  final List<String> gestureItems = [
+    'Double Tap',
+    // Add more gestures here if needed
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Gesture Tutorial'),
+      ),
+      body: ListView.builder(
+        itemCount: gestureItems.length,
+        itemBuilder: (BuildContext context, int index) {
+          return ListTile(
+            title: Text(gestureItems[index]),
+            onTap: () {
+              if (gestureItems[index] == 'Double Tap') {
+                _showDoubleTapDialog(context);
+              }
+              // Handle other gesture taps here
+            },
+            trailing: Icon(Icons.arrow_forward_ios),
+          );
+        },
+      ),
+    );
+  }
+
+  _showDoubleTapDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Double Tap'),
+        content: Text(
+            'Double tapping allows you to quickly switch between modes. When in guide mode, double tap to switch to navigation mode and vice versa.'
+        ),
+        actions: <Widget>[
+          TextButton(
+            child: Text('Close'),
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+          )
+        ],
       ),
     );
   }
@@ -1116,329 +1305,6 @@ class _AdminPageState extends State<AdminPage> {
   }
 }
 
-// class AdminPage extends StatefulWidget {
-//   final Function(List<Offset>, double, List<Room>) onUpdate;
-//
-//   AdminPage({required this.onUpdate});
-//
-//   @override
-//   _AdminPageState createState() => _AdminPageState();
-// }
-
-// class _AdminPageState extends State<AdminPage> {
-//   List<Offset> _buttonPositions = [];
-//   List<Room> _rooms = []; // Add a list to store room information //store information in circle
-//   double _circleSize = 30.0; // Add a field to store the size of the circle
-//
-//   late SharedPreferences _prefs;
-//
-//   // Future<void> clearSharedPreferences() async {
-//   //   _prefs = await SharedPreferences.getInstance();
-//   //   _prefs.clear();
-//   //   print("Done");
-//   // }
-//
-//   Future<void> _initPrefs() async {
-//     _prefs = await SharedPreferences.getInstance();
-//     _loadData();
-//
-//
-//   }
-//
-//   @override
-//   void initState() {
-//     super.initState();
-//     // clearSharedPreferences();
-//     _initPrefs().then((_) {
-//       _saveData();
-//
-//     });
-//
-//   }
-//
-//   void _saveData() async {
-//
-//     print('Saving Data');
-//
-//     _prefs = await SharedPreferences.getInstance();
-//
-//     // await _initPrefs();
-//
-//     List<String> roomNames = [];
-//     List<String> roomDescriptions = [];
-//     List<String> buttonPositions = [];
-//
-//
-//
-//     // Store room information and button positions in separate lists
-//     for (Room room in _rooms) {
-//       roomNames.add(room.roomName);
-//       roomDescriptions.add(room.roomDescription);
-//     }
-//     for (Offset position in _buttonPositions) {
-//       buttonPositions.add('${position.dx},${position.dy}');
-//     }
-//
-//     // Store data in shared preferences
-//     _prefs.setStringList('roomNames', roomNames);
-//     _prefs.setStringList('roomDescriptions', roomDescriptions);
-//     _prefs.setStringList('buttonPositions', buttonPositions);
-//     _prefs.setDouble('circleSize', _circleSize);
-//     widget.onUpdate(_buttonPositions, _circleSize, _rooms);
-//   }
-//
-//   void _loadData() {
-//
-//     List<String>? roomNames = _prefs.getStringList('roomNames');
-//     List<String>? roomDescriptions = _prefs.getStringList('roomDescriptions');
-//     List<String>? buttonPositions = _prefs.getStringList('buttonPositions');
-//     double? circleSize = _prefs.getDouble('circleSize');
-//
-//     if (roomNames != null && roomDescriptions != null && buttonPositions != null && circleSize != null) {
-//       setState(() {
-//         _rooms.clear();
-//         _buttonPositions.clear();
-//         _circleSize = circleSize;
-//
-//         for (int i = 0; i < roomNames.length && i < roomDescriptions.length; i++) {
-//           _rooms.add(Room(roomName: roomNames[i], roomDescription: roomDescriptions[i]));
-//         }
-//         for (String positionString in buttonPositions) {
-//           List<String> parts = positionString.split(',');
-//           double x = double.tryParse(parts[0]) ?? 0.0;
-//           double y = double.tryParse(parts[1]) ?? 0.0;
-//           _buttonPositions.add(Offset(x, y));
-//           print("hi");
-//         }
-//       }); // Close setState here
-//     }
-//   }
-//
-//   // Function to update the circle size
-//   void _updateCircleSize(double newSize) {
-//     setState(() {
-//       _circleSize = newSize;
-//       // _buttonPositions.clear(); //clear all the button
-//       // _rooms.clear();
-//     });
-//   }
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Admin'),
-//       ),
-//       body: Stack(
-//         children: [
-//           Center(
-//             child: Image.asset(
-//               'assets/images/MAB.png',
-//               fit: BoxFit.contain,
-//             ),
-//           ),
-//           Positioned(
-//             left: 0,
-//             right: 0,
-//             bottom: 20,
-//             child: Center(
-//               child: Column(
-//                 mainAxisSize: MainAxisSize.min,
-//                 children: [
-//                   ElevatedButton(
-//                     onPressed: () {
-//                       setState(() {
-//                         _buttonPositions.add(Offset.zero);
-//                         _rooms.add(Room(roomName: '', roomDescription: '')); // Initialize new room
-//                       });
-//                     },
-//                     child: Text('Label'),
-//                   ),
-//                   Slider(
-//                     min: 10,
-//                     max: 100,
-//                     divisions: 20,
-//                     value: _circleSize,
-//                     onChanged: (double newValue) {
-//                       _updateCircleSize(newValue);
-//                     },
-//                   ),
-//                   ElevatedButton(
-//                     onPressed: () {
-//                       _saveData();
-//                     },
-//                     child: Text('Save'),
-//                   ),
-//                 ],
-//               ),
-//             ),
-//           ),
-//           ..._buttonPositions
-//               .asMap()
-//               .entries
-//               .map(
-//                 (entry) =>
-//                     Positioned(
-//                       left: entry.value.dx,
-//                       top: entry.value.dy,
-//                       child: Listener(
-//                         onPointerMove: (PointerMoveEvent event) {
-//                           setState(() {
-//                             _buttonPositions[entry.key] += event.delta;
-//                           });
-//                         },
-//                         child: ClipOval(
-//                           child: ElevatedButton(
-//                             onPressed: () async {
-//                               Room? updatedRoom = await _showRoomDialog(context, _rooms[entry.key]);
-//                               if (updatedRoom != null) {
-//                                 setState(() {
-//                                   _rooms[entry.key] = updatedRoom;
-//                                 });
-//                               }
-//                             },
-//                             child: Container(),
-//                             style: ElevatedButton.styleFrom(
-//                               primary: Colors.blue,
-//                               padding: EdgeInsets.zero,
-//                               minimumSize: Size(_circleSize, _circleSize),
-//                             ),
-//                           ),
-//                         ),
-//                       ),
-//                     ),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-// }
-
-//description for the circle
-class Room {
-  String roomName;
-  String roomDescription;
-
-  Room({required this.roomName, required this.roomDescription});
-}
-
-// show a custom dialog with two text fields
-Future<Room?> _showRoomDialog(BuildContext context, Room room) async {
-  TextEditingController roomNameController = TextEditingController(text: room.roomName);
-  TextEditingController roomDescriptionController = TextEditingController(text: room.roomDescription);
-
-  String roomName = '';
-  String roomDescription = '';
-
-  return showDialog<Room>(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: Text('Enter Room Details'),
-        content: SingleChildScrollView(
-          child: ListBody(
-            children: <Widget>[
-              TextField(
-                controller: roomNameController,
-                decoration: InputDecoration(labelText: 'Room Name'),
-              ),
-              TextField(
-                controller: roomDescriptionController,
-                decoration: InputDecoration(labelText: 'Room Description'),
-              ),
-            ],
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            child: Text('Cancel'),
-            onPressed: () {
-              Navigator.of(context).pop(null);
-            },
-          ),
-          TextButton(
-            child: Text('Save'),
-            onPressed: () {
-              Navigator.of(context).pop(Room(
-                roomName: roomNameController.text,
-                roomDescription: roomDescriptionController.text,
-              ));
-            },
-          ),
-
-        ],
-      );
-    },
-  );
-}
-
-// receives the button positions, circle size, and rooms information as arguments
-class LabelsMap extends StatelessWidget {
-  final List<Offset> buttonPositions;
-  final double circleSize;
-  final List<Room> rooms;
-
-  LabelsMap({
-    required this.buttonPositions,
-    required this.circleSize,
-    required this.rooms,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Center(
-          child: Image.asset(
-            'assets/images/MAB.png',
-            fit: BoxFit.contain,
-          ),
-        ),
-        ...buttonPositions
-            .asMap()
-            .entries
-            .map(
-              (entry) => Positioned(
-            left: entry.value.dx,
-            top: entry.value.dy,
-            child: ClipOval(
-              child: ElevatedButton(
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) {
-                      return AlertDialog(
-                        title: Text(rooms[entry.key].roomName),
-                        content: Text(rooms[entry.key].roomDescription),
-                        actions: [
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                            },
-                            child: Text('Close'),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                  _speak('${rooms[entry.key].roomName}. ${rooms[entry.key].roomDescription}', onComplete: () {
-                    Navigator.pop(context);
-                  });
-                },
-                child: Container(),
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.blue,
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size(circleSize, circleSize),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 
 
