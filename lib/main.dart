@@ -724,6 +724,7 @@ class _UserMainPageState extends State<UserMainPage> {
       circlesJson.map((circleJson) => Circle.fromJson(circleJson)).toList();
 
       setState(() {
+        circles.clear();
         circles = loadedCircles;
       });
 
@@ -1059,6 +1060,7 @@ class _UserMainPageState extends State<UserMainPage> {
     if (floorOptions.indexOf(selectedFloor!) < floorOptions.length - 1) {
       setState(() {
         selectedFloor = floorOptions[floorOptions.indexOf(selectedFloor!) + 1];
+        circles.clear();
       });
       _checkAndDownloadImage();
       _announceNumberOfCircles();
@@ -1071,6 +1073,7 @@ class _UserMainPageState extends State<UserMainPage> {
     if (floorOptions.indexOf(selectedFloor!) > 0) {
       setState(() {
         selectedFloor = floorOptions[floorOptions.indexOf(selectedFloor!) - 1];
+        circles.clear();
       });
       _checkAndDownloadImage();
       _announceNumberOfCircles();
@@ -1573,6 +1576,7 @@ class _AdminPageState extends State<AdminPage> {
     );
   }
 }
+
 
 
 
