@@ -1315,6 +1315,16 @@ class TutorialPage extends StatelessWidget {
                   context,
                   MaterialPageRoute(builder: (context) => MapCustomizationTutorialPage()),
                 );
+              } else if (tutorialItems[index] == 'Navigation mode') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => NavModeTutorialPage()),
+                );
+              } else if (tutorialItems[index] == 'Guide mode') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => GuideModeTutorialPage()),
+                );
               } else if (tutorialItems[index] == 'Label') {
                 Navigator.push(
                   context,
@@ -1400,6 +1410,90 @@ class _MapCustomizationTutorialPageState extends State<MapCustomizationTutorialP
                   child: Text("Next"),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class GuideModeTutorialPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Guide Mode Tutorial'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView(
+          children: <Widget>[
+            Text(
+              "When you're using the app in 'guide mode', you'll need to pause your TalkBack or VoiceOver for a bit. But don't worry! The app will still talk to you and guide you as you explore the map.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 20),
+            Text(
+              "In guide mode, we've turned off all the labels except for one - the entrance. To find it, use your finger to explore around the screen until your phone vibrates - that means you're close! Keep moving your finger towards where the vibration is strongest, that's where the entrance label is. When you hover over this spot, the app will tell you all about it out loud.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "Once found, our guide takes over and leads you from label to label on our map - just like a real-life tour guide! It'll take you through each point of interest one by one until everything has been visited. After visiting all points of interest on our map, a voice prompt will let know that 'guide mode' has ended.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "If want to switch back into navigation mode, just double tap anywhere on the screen. If there are multiple floors or levels in this location, swipe left or right: swiping left takes down one floor while swiping right takes up one floor.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 20),
+            Text(
+              "When done exploring with guide mode, remember to turn TalkBack or VoiceOver back on so they can help navigate other parts of your phone again.",
+              style: TextStyle(fontSize: 18),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class NavModeTutorialPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Navigation Mode Tutorial'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView(
+          children: <Widget>[
+            Text(
+              "When you're using the navigation mode, you'll need to pause your TalkBack or VoiceOver for a bit. But don't worry! The app will still talk to you and guide you as you explore the map.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 20),
+            Text(
+              "You can use your finger to feel around the screen, just like exploring a real map with your hands. If there's something important nearby on the map - we call these 'labels' - your phone will vibrate to let you know.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "Try moving your finger towards the vibration until it gets stronger - that means you've found a label! When you hover over this spot, the app will tell you all about it out loud. This way, by listening carefully, you can learn about what's around in that part of the map.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "If want to switch from exploring mode ('navigation mode') into guide mode, just double tap anywhere on the screen. If there are multiple floors or levels in this location, swipe left or right: swiping left takes you down one floor while swiping right takes up one floor.",
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 20),
+            Text(
+              "Once done exploring and learning about what's around on our app's map feature, remember to turn TalkBack or VoiceOver back on so they can help navigate other parts of your phone again.",
+              style: TextStyle(fontSize: 18),
             ),
           ],
         ),
